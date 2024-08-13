@@ -1,40 +1,59 @@
+use std::cell::{Ref, RefCell};
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
+use std::iter::Filter;
 use std::marker::PhantomData;
+use std::ops::Deref;
+use std::rc::{Rc, Weak};
 
 /// 双链表
 pub struct LinkedList<T> {
-    // TODO: YOUR CODE HERE
-    marker: PhantomData<T>, // 可以去掉
+    count: usize,
+    first: Option<Rc<RefCell<Node<T>>>>,
+    last: Option<Rc<RefCell<Node<T>>>>,
+    // marker: PhantomData<T>, // 可以去掉
 }
 
 /// 链表节点
 struct Node<T> {
-    // TODO: YOUR CODE HERE
-    marker: PhantomData<T>, // 可以去掉
+    pub data: T,
+    pub prev: Option<Weak<RefCell<Node<T>>>>,
+    pub next: Option<Rc<RefCell<Node<T>>>>,
+    // marker: PhantomData<T>, // 可以去掉
 }
 
 /// 链表迭代器
 pub struct Iter<'a, T> {
-    // TODO: YOUR CODE HERE
+    first: Option<Rc<RefCell<Node<T>>>>,
+    last: Option<Rc<RefCell<Node<T>>>>,
+    len:usize,
     marker: PhantomData<&'a T>,
 }
 
 /// 链表可变迭代器
 pub struct IterMut<'a, T> {
-    // TODO: YOUR CODE HERE
+    first: Option<Rc<RefCell<Node<T>>>>,
+    last: Option<Rc<RefCell<Node<T>>>>,
+    len:usize,
     marker: PhantomData<&'a mut T>,
+}
+
+impl<T> Node<T> {
+    pub fn new(data: T) -> Self {
+        Self { data, prev: None, next: None }
+    }
 }
 
 impl<T> LinkedList<T> {
     /// 创建一个空链表
     pub fn new() -> Self {
-        // Self {
-        //     // TODO: YOUR CODE HERE
-        //     marker: PhantomData,
-        // }
-        unimplemented!()
+        Self {
+            first: None,
+            last: None,
+            count: 0
+            // marker: PhantomData,
+        }
     }
 
     /// 将元素插入到链表头部
@@ -46,9 +65,19 @@ impl<T> LinkedList<T> {
     /// list.push_front(1);
     /// assert_eq!(list.front(), Some(&1));
     /// ```
-    pub fn push_front(&mut self, _elem: T) {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+    pub fn push_front(&mut self, elem: T) {
+        if let Some(ref first_temp) = self.first { // list is not empty
+            let mut new_node = Node::new(elem);
+            new_node.next = Some(first_temp.clone());
+            let first = Rc::new(RefCell::new(new_node));
+            first_temp.borrow_mut().prev = Some(Rc::downgrade(&first));
+            self.first = Some(first);
+        } else { // list is empty
+            let new_node = Rc::new(RefCell::new(Node::new(elem)));
+            self.first = Some(new_node.clone());
+            self.last = Some(new_node);
+        }
+        self.count += 1;
     }
 
     /// 将元素插入到链表尾部
@@ -60,9 +89,19 @@ impl<T> LinkedList<T> {
     /// list.push_back(1);
     /// assert_eq!(list.back(), Some(&1));
     /// ```
-    pub fn push_back(&mut self, _elem: T) {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+    pub fn push_back(&mut self, elem: T) {
+        if let Some(ref last_temp) = self.last { // list is not empty
+            let mut new_node = Node::new(elem);
+            new_node.prev = Some(Rc::downgrade(last_temp));
+            let last = Rc::new(RefCell::new(new_node));
+            last_temp.borrow_mut().next = Some(last.clone());
+            self.last = Some(last);
+        } else { // list is empty
+            let new_node = Rc::new(RefCell::new(Node::new(elem)));
+            self.first = Some(new_node.clone());
+            self.last = Some(new_node);
+        }
+        self.count += 1;
     }
 
     /// 将第一个元素返回
@@ -75,8 +114,22 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.pop_front(), Some(1));
     /// ```
     pub fn pop_front(&mut self) -> Option<T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if self.first.is_none() {
+            None
+        }
+        else {
+            let first_old = self.first.clone();
+            if let Some(ref first_next) = self.first.clone().unwrap().borrow().next {
+                first_next.borrow_mut().prev = None;
+                self.first = Some(first_next.clone());
+            } else {
+                self.first = None;
+                self.last = None;
+            }
+            self.count -= 1;
+            let value = Rc::try_unwrap(first_old.unwrap()).ok().unwrap().into_inner();
+            Some(value.data)
+        }
     }
 
     /// 将最后一个元素返回
@@ -89,8 +142,22 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.pop_back(), Some(1));
     /// ```
     pub fn pop_back(&mut self) -> Option<T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if self.last.is_none() {
+            None
+        }
+        else {
+            let last_old = self.last.clone();
+            if let Some(ref last_prev) = self.last.clone().unwrap().borrow().prev {
+                last_prev.upgrade().as_ref().unwrap().borrow_mut().next = None;
+                self.last = last_prev.upgrade().clone();
+            } else {
+                self.first = None;
+                self.last = None;
+            }
+            self.count -= 1;
+            let value = Rc::try_unwrap(last_old.unwrap()).ok().unwrap().into_inner();
+            Some(value.data)
+        }
     }
 
     /// 返回链表第一个元素的引用  
@@ -104,14 +171,24 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.front(), Some(&1));
     /// ```
     pub fn front(&self) -> Option<&T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if let Some(node) = self.first.as_ref(){
+            unsafe {
+                Some(&(*node.as_ptr()).data)
+            }
+        } else {
+            None
+        }
     }
 
     /// 返回链表第一个元素的可变引用   
     pub fn front_mut(&mut self) -> Option<&mut T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if let Some(node) = self.first.as_ref(){
+            unsafe {
+                Some(&mut (*node.as_ptr()).data)
+            }
+        } else {
+            None
+        } 
     }
 
     /// 返回链表最后一个元素的引用
@@ -125,14 +202,24 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.back(), Some(&1));
     /// ```
     pub fn back(&self) -> Option<&T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if let Some(node) = self.last.as_ref(){
+            unsafe {
+                Some(&(*node.as_ptr()).data)
+            }
+        } else {
+            None
+        } 
     }
 
     /// 返回链表最后一个元素的可变引用
     pub fn back_mut(&mut self) -> Option<&mut T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        if let Some(node) = self.last.as_ref(){
+            unsafe {
+                Some(&mut (*node.as_ptr()).data)
+            }
+        } else {
+            None
+        } 
     }
 
     /// 返回链表长度
@@ -145,8 +232,7 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.len(), 1);
     /// ```
     pub fn len(&self) -> usize {
-        // TODO: YOUR CODE HERE
-        unimplemented!()
+        self.count
     }
 
     /// 判断链表是否为空
@@ -173,20 +259,22 @@ impl<T> LinkedList<T> {
 
     /// 返回一个迭代器
     pub fn iter(&self) -> Iter<T> {
-        // Iter {
-        //     // TODO: YOUR CODE HERE
-        //     marker : PhantomData,
-        // }
-        unimplemented!();
+        Iter {
+            first: self.first.clone(),
+            last: self.last.clone(),
+            len: self.count,
+            marker : PhantomData,
+        }
     }
 
     /// 返回一个可变迭代器
     pub fn iter_mut(&mut self) -> IterMut<T> {
-        // IterMut {
-        //     // TODO: YOUR CODE HERE
-        //     marker: PhantomData,
-        // }
-        unimplemented!();
+        IterMut {
+            first: self.first.clone(),
+            last: self.last.clone(),
+            len: self.count,
+            marker: PhantomData,
+        }
     }
 
     /// 获取链表中指定位置的元素   
@@ -197,15 +285,35 @@ impl<T> LinkedList<T> {
     /// list.push_back(1);
     /// assert_eq!(list.get(0), &1);
     /// ```
-    pub fn get(&self, _at: usize) -> &T {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn get(&self, at: usize) -> &T {
+        if at+1 > self.count {
+            panic!();
+        } else {
+            let mut current = self.first.clone();
+            for _ in 0..at {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+            }
+            unsafe {
+                &(*current.as_ref().unwrap().as_ptr()).data
+            }
+        }
     }
 
     /// 获取链表中指定位置的可变元素
-    pub fn get_mut(&mut self, _at: usize) -> &mut T {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn get_mut(&mut self, at: usize) -> &mut T {
+        if at+1 > self.count {
+            panic!();
+        } else {
+            let mut current = self.first.clone();
+            for _ in 0..at {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+            }
+            unsafe {
+                &mut (*current.as_ref().unwrap().as_ptr()).data
+            }
+        }
     }
 
     /// 将元素插入到**下标为i**的位置    
@@ -222,9 +330,27 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.get(1), &2);
     /// assert_eq!(list.get(2), &3);
     /// ```
-    pub fn insert(&mut self, _at: usize, _data: T) {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn insert(&mut self, at: usize, data: T) {
+        if at > self.count {
+            panic!();
+        } else if self.count == 0 || at == 0{
+            self.push_front(data);
+        } else if at == self.count {
+            self.push_back(data);
+        } else {
+            let mut current = self.first.clone();
+            for _ in 0..at-1 {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+            }
+            let mut new_node = Node::new(data);
+            new_node.prev = Some(Rc::downgrade(current.as_ref().unwrap()));
+            new_node.next = current.as_ref().unwrap().borrow().next.clone();
+            let temp =Rc::new(RefCell::new(new_node));
+            current.as_ref().unwrap().borrow_mut().next.as_ref().unwrap().borrow_mut().prev = Some(Rc::downgrade(&temp));
+            current.as_ref().unwrap().borrow_mut().next = Some(temp.clone());
+            self.count += 1;
+        }
     }
 
     /// 移除链表中下标为i的元素
@@ -235,9 +361,28 @@ impl<T> LinkedList<T> {
     /// use linked_list::double_linked_list::LinkedList;
     /// let mut list = LinkedList::from_iter(vec![1,2,3]);
     /// assert_eq!(list.remove(1), 2);
-    pub fn remove(&mut self, _at: usize) -> T {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn remove(&mut self, at: usize) -> T {
+        if at >= self.count {
+            panic!();
+        } else if at == 0{
+            self.pop_front().unwrap()
+        } else if at == self.count-1 {
+            self.pop_back().unwrap()
+        } else {
+            let mut current = self.first.clone();
+            for _ in 0..at {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+            }
+            let a = current.as_ref().unwrap().borrow_mut().next.clone();
+            a.as_ref().unwrap().borrow_mut().prev = current.as_ref().unwrap().borrow_mut().prev.clone();
+            let a = current.as_ref().unwrap().borrow_mut().prev.clone();
+            a.as_ref().unwrap().upgrade().unwrap().borrow_mut().next = current.as_ref().unwrap().borrow_mut().next.clone();
+            current.as_ref().unwrap().borrow_mut().next = None;
+            self.count -= 1;
+            let value = Rc::try_unwrap(current.unwrap()).ok().unwrap().into_inner();
+            value.data
+        }
     }
 
     /// 将链表分割成两个链表，原链表为[0,at-1]，新链表为[at,len-1]。
@@ -251,9 +396,35 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.len(), 2);
     /// assert_eq!(list.pop_front(), Some(1));
     /// assert_eq!(list.pop_front(), Some(2));
-    pub fn split_off(&mut self, _at: usize) -> LinkedList<T> {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn split_off(&mut self, at: usize) -> LinkedList<T> {
+        if at > self.count {
+            panic!();
+        } else if at == self.count {
+            LinkedList {
+                first: None,
+                last: None,
+                count: 0,
+            }
+        } else {
+            let mut current = self.first.clone();
+            for _ in 0..at-1 {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+            }
+            let first_new = current.as_ref().unwrap().borrow().next.clone();
+            let last_new = self.last.clone();
+            let count_new = self.count-at;
+            self.last = current.clone();
+            current.as_ref().unwrap().borrow_mut().next = None;
+            first_new.as_ref().unwrap().borrow_mut().prev = None;
+            self.count = at;
+            LinkedList {
+                first: first_new,
+                last: last_new,
+                count: count_new,
+            }
+        }
+        
     }
 
     /// 查找链表中第一个满足条件的元素
@@ -266,8 +437,13 @@ impl<T> LinkedList<T> {
     /// assert_eq!(list.find_mut(|x| x % 4 == 0), None);
     /// ```
     pub fn find_mut<P>(&mut self,predicate:P)->Option<&mut T> where P:Fn(&T) -> bool{
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        for node in self.iter_mut() {
+            if predicate(node) {
+                // 找到满足条件的节点，返回对其元素的可变引用
+                return Some(node);
+            }
+        }
+        None
     }
 }
 
@@ -282,9 +458,24 @@ impl<T: PartialEq> LinkedList<T> {
     /// assert_eq!(list.contains(&1), true);
     /// assert_eq!(list.contains(&2), false);
     /// ```
-    pub fn contains(&mut self, _data: &T) -> bool {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+    pub fn contains(&mut self, data: &T) -> bool {
+        if self.count == 0 {
+            false
+        } else {
+            let mut current = self.first.clone();
+            if current.as_ref().unwrap().borrow().data == *data {
+                return  true;
+            } 
+            for _ in 0..self.count-1 {
+                let a = current.as_ref().unwrap().borrow().next.clone();
+                current = a;
+                if current.as_ref().unwrap().borrow().data == *data {
+                    return  true;
+                } 
+            }
+            false
+        }
+        
     }
 }
 
@@ -311,42 +502,96 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
     // 返回下一个元素，当没有元素可返回时，返回None
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        if self.first.is_none() {
+            None
+        } else { 
+            let first_temp = self.first.clone();
+            if self.first.as_ref().unwrap().borrow().next.is_none() {
+                self.first = None;
+            } else {
+                unsafe {
+                    self.first = (&*self.first.as_ref().unwrap().as_ptr()).next.clone();
+                }
+            }
+            unsafe {
+                self.len -= 1;
+                Some(&(*first_temp.unwrap().as_ptr()).data)
+            }
+        }
     }
 
     // 返回(self.len, Some(self.len))即可
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        (self.len, Some(self.len))
     }
 }
 impl<'a, T> Iterator for IterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        if self.first.is_none() {
+            None
+        } else { 
+            let first_temp = self.first.clone();
+            if self.first.as_ref().unwrap().borrow().next.is_none() {
+                self.first = None;
+            } else {
+                unsafe {
+                    self.first = (&*self.first.as_ref().unwrap().as_ptr()).next.clone();
+                }
+            }
+            unsafe {
+                self.len -= 1;
+                Some(&mut (*first_temp.unwrap().as_ptr()).data)
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        (self.len, Some(self.len))
     }
 }
 
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     // 返回前一个元素
     fn next_back(&mut self) -> Option<Self::Item> {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        if self.last.is_none() {
+            None
+        } else {
+            let last_temp = self.last.clone();
+            if self.last.as_ref().unwrap().borrow().prev.is_none() {
+                self.last = None;
+            } else {
+                unsafe {
+                    self.last = (&*self.last.clone().unwrap().as_ptr()).prev.as_ref().unwrap().upgrade();
+                }
+            }
+            unsafe {
+                self.len -= 1;
+                Some(&(*last_temp.unwrap().as_ptr()).data)
+            }
+        }
     }
 }
 
 impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        // TODO: YOUR CODE HERE
-        unimplemented!();
+        if self.last.is_none() {
+            None
+        } else {
+            let last_temp = self.last.clone();
+            if self.last.as_ref().unwrap().borrow().prev.is_none() {
+                self.last = None;
+            } else {
+                unsafe {
+                    self.last = (&*self.last.clone().unwrap().as_ptr()).prev.as_ref().unwrap().upgrade();
+                }
+            }
+            unsafe {
+                self.len -= 1;
+                Some(&mut (*last_temp.unwrap().as_ptr()).data)
+            }
+        }
     }
 }
 
